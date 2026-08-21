@@ -88,6 +88,20 @@ class BadgeReportTests(unittest.TestCase):
         self.assertEqual(collected[0].created_at, datetime(2026, 7, 1, 8, 45, tzinfo=timezone.utc))
         self.assertEqual(collected[1].created_at, datetime(2026, 7, 10, 15, 30, tzinfo=timezone.utc))
 
+    def test_send_via_sendmail_uses_envelope_sender(self) -> None:
+        message = EmailMessage()
+        message["Subject"] = "test"
+        message.set_content("hello")
+
+        with patch.object(report.subprocess, "run") as run:
+            report.send_via_sendmail(message, "/usr/sbin/sendmail", "reports@example.invalid")
+
+        run.assert_called_once()
+        args, kwargs = run.call_args
+        self.assertEqual(args[0][:4], ["/usr/sbin/sendmail", "-f", "reports@example.invalid", "-t"])
+        self.assertTrue(kwargs["check"])
+        self.assertIn("hello", kwargs["input"].decode())
+
     def test_build_email_contains_body_and_csv_attachment(self) -> None:
         shop = report.ShopConfig(
             name="Woodshop",

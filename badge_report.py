@@ -395,8 +395,8 @@ def build_email(
     return message
 
 
-def send_via_sendmail(message: EmailMessage, sendmail_path: str) -> None:
-    subprocess.run([sendmail_path, "-t", "-oi"], input=message.as_bytes(), check=True)
+def send_via_sendmail(message: EmailMessage, sendmail_path: str, envelope_from: str) -> None:
+    subprocess.run([sendmail_path, "-f", envelope_from, "-t", "-oi"], input=message.as_bytes(), check=True)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -438,7 +438,7 @@ def run(argv: Sequence[str] | None = None) -> int:
         print(message)
         return 0
 
-    send_via_sendmail(message, config.sendmail_path)
+    send_via_sendmail(message, config.sendmail_path, config.from_address)
     print(f"Sent {len(badge_events)} badge events for {shop.name} to {recipient}")
     return 0
 
