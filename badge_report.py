@@ -233,20 +233,18 @@ def fetch_events(
     page_size: int = 1000,
 ) -> list[dict]:
     since_text = since.astimezone(dt.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-    code_text = ",".join(str(code) for code in event_codes)
+    code_set = {int(code) for code in event_codes}
     events: list[dict] = []
     page = 1
     while True:
         query = urllib_parse.urlencode(
             {
-                "door_controllers": channel_id,
+                "channels": channel_id,
                 "since": since_text,
-                "event_codes": code_text,
                 "n": page_size,
                 "page": page,
                 "sort": "DESC",
-            },
-            safe=",",
+            }
         )
         url = f"{api_base.rstrip('/')}/events?{query}"
         payload = _request_json(url, token)
@@ -257,7 +255,18 @@ def fetch_events(
         if len(items) < page_size:
             break
         page += 1
-    return events
+
+    if not code_set:
+        return events
+    filtered: list[dict] = []
+    for event in events:
+        try:
+            code = int(event.get("event_code"))
+        except (TypeError, ValueError):
+            continue
+        if code in code_set:
+            filtered.append(event)
+    return filtered
 
 
 def _to_event_record(event: dict) -> EventRecord:
