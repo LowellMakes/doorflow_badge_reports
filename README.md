@@ -1,30 +1,32 @@
 # Doorflow Badge Report
 
-Self-contained monthly reporting for Doorflow shop badges.
+Self-contained reporting for DoorFlow door access events.
 
 Requirements:
-- Python 3.10+ (run with `python3`, not `python` on older systems)
-- `DOORFLOW_AUTH_KEY` in the environment at runtime
-- `config.json` holds API base, sendmail path, sender address, and shop definitions
-- `badge_report.py` contains the logic only
-- `DOORFLOW_AUTH_KEY` supplies the live Doorflow auth token at runtime
+- Python 3.10+ (run with `python3`)
+- A DoorFlow OAuth access token in the environment
 
-## Current test setup
+The repo is intentionally config-driven:
+- `config.json` holds the API base URL, sendmail path, sender address, and shop/door definitions
+- `badge_report.py` contains the report logic only
+- `DOORFLOW_ACCESS_TOKEN` is the preferred environment variable for live API access
 
-The bundled config starts with Woodshop and sends the test report to `sender@example.invalid`.
+Current test setup:
+- Woodshop is the default shop in `config.json`
+- the report is addressed to `sender@example.invalid`
 
-## What it does
+What it does:
+- looks up the configured door controller for the selected shop
+- fetches DoorFlow access events for the last 30 days
+- filters to admitted access events for that door
+- aggregates the people who badged the door, with first/last badge time and badge count
+- emails a human-readable report plus CSV attachment via local sendmail
 
-- Fetches all Doorflow people from the API
-- Filters the people assigned to the selected shop’s Doorflow group
-- Builds a human-readable report and CSV attachment
-- Emails the report through local sendmail
+Quick start:
 
-## Quick start
+1. Set your DoorFlow token:
 
-1. Set your Doorflow auth key:
-
-   export DOORFLOW_AUTH_KEY='your-real-doorflow-auth-key'
+   export DOORFLOW_ACCESS_TOKEN='your-real-doorflow-access-token'
 
 2. Review `config.json`.
 
@@ -36,20 +38,20 @@ The bundled config starts with Woodshop and sends the test report to `sender@exa
 
    python3 badge_report.py
 
-## Changing shops later
+Changing shops later:
 
 Add more entries to `config.json` under `shops`:
 
 - `name`
-- `doorflow_group_id`
 - `captain_email`
+- `doorflow_channel_name` or `doorflow_channel_id`
 
 Then run, for example:
 
-    python badge_report.py --shop MetalShop
+    python3 badge_report.py --shop MetalShop
 
 If you omit `--shop`, the first shop in `config.json` is used.
 
-## Testing
+Testing:
 
-    python -m unittest discover -s tests -v
+    python3 -m unittest discover -s tests -v
