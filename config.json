@@ -6,7 +6,11 @@
     {
       "name": "Woodshop",
       "doorflow_channel_name": "Woodshop",
-      "captain_email": "sender@example.invalid"
+      "captain_email": "sender@example.invalid",
+      "summary": {
+        "enabled": true,
+        "top_n": 5
+      }
     }
   ]
 }

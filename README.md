@@ -7,7 +7,7 @@ Requirements:
 - A DoorFlow OAuth access token in the environment
 
 The repo is intentionally config-driven:
-- `config.json` holds the API base URL, sendmail path, sender address, and shop/door definitions
+- `config.json` holds the API base URL, sendmail path, sender address, shop/door definitions, and per-shop summary toggles
 - `badge_report.py` contains the report logic only
 - `DOORFLOW_ACCESS_TOKEN` is the preferred environment variable for live API access
 
@@ -45,6 +45,7 @@ Add more entries to `config.json` under `shops`:
 - `name`
 - `captain_email`
 - `doorflow_channel_name` or `doorflow_channel_id`
+- optional `summary` block to enable/disable sections per shop
 
 Then run, for example:
 

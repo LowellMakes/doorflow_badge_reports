@@ -8,7 +8,8 @@ import io
 import json
 import os
 import subprocess
-from dataclasses import dataclass
+from collections import Counter
+from dataclasses import dataclass, field
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Iterable, Sequence
@@ -28,6 +29,7 @@ class ShopConfig:
     captain_email: str
     doorflow_channel_name: str | None = None
     doorflow_channel_id: int | None = None
+    report_summary: "ReportSummaryConfig" = field(default_factory=lambda: ReportSummaryConfig())
 
     @property
     def display_door(self) -> str:
@@ -36,6 +38,19 @@ class ShopConfig:
         if self.doorflow_channel_id is not None:
             return str(self.doorflow_channel_id)
         return self.name
+
+
+@dataclass(frozen=True)
+class ReportSummaryConfig:
+    enabled: bool = True
+    show_total: bool = True
+    show_status_counts: bool = True
+    show_unique_people: bool = True
+    show_average_per_day: bool = True
+    show_busiest_day: bool = True
+    show_top_accepted_people: bool = True
+    show_top_rejected_people: bool = True
+    top_n: int = 5
 
 
 @dataclass(frozen=True)
@@ -81,6 +96,24 @@ def _read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _parse_summary_config(raw: object | None) -> ReportSummaryConfig:
+    if raw in (None, ""):
+        return ReportSummaryConfig()
+    if not isinstance(raw, dict):
+        raise ValueError("shop summary config must be a mapping")
+    return ReportSummaryConfig(
+        enabled=bool(raw.get("enabled", True)),
+        show_total=bool(raw.get("show_total", True)),
+        show_status_counts=bool(raw.get("show_status_counts", True)),
+        show_unique_people=bool(raw.get("show_unique_people", True)),
+        show_average_per_day=bool(raw.get("show_average_per_day", True)),
+        show_busiest_day=bool(raw.get("show_busiest_day", True)),
+        show_top_accepted_people=bool(raw.get("show_top_accepted_people", True)),
+        show_top_rejected_people=bool(raw.get("show_top_rejected_people", True)),
+        top_n=int(raw.get("top_n", 5)),
+    )
+
+
 def load_config(path: Path | str = DEFAULT_CONFIG) -> AppConfig:
     raw = _read_json(Path(path))
     shops: list[ShopConfig] = []
@@ -90,12 +123,14 @@ def load_config(path: Path | str = DEFAULT_CONFIG) -> AppConfig:
             parsed_channel_id = None
         else:
             parsed_channel_id = int(doorflow_channel_id)
+        summary = _parse_summary_config(shop.get("summary") or shop.get("report_summary"))
         shops.append(
             ShopConfig(
                 name=str(shop["name"]),
                 captain_email=str(shop["captain_email"]),
                 doorflow_channel_name=(str(shop["doorflow_channel_name"]) if shop.get("doorflow_channel_name") else None),
                 doorflow_channel_id=parsed_channel_id,
+                report_summary=summary,
             )
         )
 
@@ -326,23 +361,104 @@ def collect_badge_events(events: Iterable[dict]) -> list[BadgeEvent]:
     return collected
 
 
+def _person_counts(events: Sequence[BadgeEvent], *, status: str | None = None) -> tuple[Counter[str], dict[str, str]]:
+    counts: Counter[str] = Counter()
+    display_names: dict[str, str] = {}
+    for event in events:
+        if status is not None and event.status != status:
+            continue
+        key = event.display_name.casefold()
+        counts[key] += 1
+        display_names.setdefault(key, event.display_name)
+    return counts, display_names
+
+
+def _top_people(events: Sequence[BadgeEvent], *, status: str, top_n: int) -> list[tuple[str, int]]:
+    counts, display_names = _person_counts(events, status=status)
+    ordered = sorted(
+        counts.items(),
+        key=lambda item: (-item[1], display_names[item[0]].casefold()),
+    )
+    return [(display_names[key], count) for key, count in ordered[:top_n]]
+
+
+def _format_bullet_lines(title: str, items: Sequence[str]) -> list[str]:
+    lines = [title]
+    for item in items:
+        lines.append(f"  - {item}")
+    if not items:
+        lines.append("  - None")
+    return lines
+
+
+def build_summary_lines(
+    *,
+    events: Sequence[BadgeEvent],
+    period_days: int,
+    summary_config: ReportSummaryConfig,
+) -> list[str]:
+    if not summary_config.enabled:
+        return []
+
+    total = len(events)
+    accepted = sum(1 for event in events if event.status == "Accepted")
+    rejected = sum(1 for event in events if event.status == "Rejected")
+    unique_people = len({event.display_name.casefold() for event in events})
+    average_per_day = (total / period_days) if period_days > 0 else 0.0
+    by_day = Counter(event.created_at_eastern.date() for event in events)
+    busiest_day = None
+    busiest_count = 0
+    if by_day:
+        busiest_day, busiest_count = sorted(by_day.items(), key=lambda item: (-item[1], item[0]))[0]
+
+    lines = ["Summary:"]
+    if summary_config.show_total:
+        lines.append(f"  Total badge events: {total}")
+    if summary_config.show_status_counts:
+        lines.append(f"  Accepted: {accepted}")
+        lines.append(f"  Rejected: {rejected}")
+    if summary_config.show_unique_people:
+        lines.append(f"  Unique badge holders: {unique_people}")
+    if summary_config.show_average_per_day:
+        lines.append(f"  Average badges per day: {average_per_day:.1f}")
+    if summary_config.show_busiest_day:
+        if busiest_day is None:
+            lines.append("  Busiest day: None")
+        else:
+            lines.append(f"  Busiest day: {busiest_day.isoformat()} ({busiest_count} events)")
+    if summary_config.show_top_accepted_people:
+        lines.extend(_format_bullet_lines(
+            f"Top {summary_config.top_n} accepted badge holders:",
+            [f"{name} ({count})" for name, count in _top_people(events, status="Accepted", top_n=summary_config.top_n)],
+        ))
+    if summary_config.show_top_rejected_people:
+        lines.extend(_format_bullet_lines(
+            f"Top {summary_config.top_n} rejected attempts:",
+            [f"{name} ({count})" for name, count in _top_people(events, status="Rejected", top_n=summary_config.top_n)],
+        ))
+    return lines
+
+
 def render_body(
     *,
     shop: ShopConfig,
     period_label: str,
     recipient: str,
     events: Sequence[BadgeEvent],
+    period_days: int,
 ) -> str:
     lines = [
         f"Doorflow badge report for {shop.name}",
         f"Door: {shop.display_door}",
         f"Period: {period_label}",
         f"Recipient: {recipient}",
-        f"Total badge events: {len(events)}",
+    ]
+    lines.extend(build_summary_lines(events=events, period_days=period_days, summary_config=shop.report_summary))
+    lines.extend([
         "",
         "Date/Time Eastern | Accepted/Rejected | Person | Fob #",
         "----------------- | ----------------- | ------ | -----",
-    ]
+    ])
     for event in events:
         lines.append(
             f"{_format_eastern(event.created_at)} | {event.status} | {event.display_name} | {event.credentials_number or '-'}"
@@ -377,6 +493,7 @@ def build_email(
     shop: ShopConfig,
     period_label: str,
     events: Sequence[BadgeEvent],
+    period_days: int,
 ) -> EmailMessage:
     message = EmailMessage()
     message["Subject"] = subject
@@ -388,6 +505,7 @@ def build_email(
             period_label=period_label,
             recipient=recipient,
             events=events,
+            period_days=period_days,
         )
     )
     attachment_name = f"{shop.name.lower()}-doorflow-badge-report-{period_label.replace(' ', '_').lower()}.csv"
@@ -432,6 +550,7 @@ def run(argv: Sequence[str] | None = None) -> int:
         shop=shop,
         period_label=period_label,
         events=badge_events,
+        period_days=args.days,
     )
 
     if args.dry_run:
