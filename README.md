@@ -19,7 +19,7 @@ What it does:
 - looks up the configured door controller for the selected shop
 - fetches DoorFlow access events for the last 30 days
 - keeps the badge events oldest-first
-- shows the badge time in Eastern time, the person’s name, and the fob/credential number used
+- shows the badge time in Eastern time, the person’s name, the fob/credential number used, and whether the access was accepted or rejected
 - emails a human-readable report plus CSV attachment via local sendmail
 
 Quick start:

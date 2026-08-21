@@ -77,13 +77,14 @@ class BadgeReportTests(unittest.TestCase):
                 "person_name": "Grace Hopper",
                 "credentials_number": "9876",
                 "created_at": "2026-07-01T08:45:00Z",
-                "event_code": 10,
-                "event_label": "Grace admitted using card",
+                "event_code": 20,
+                "event_label": "Grace rejected using card",
             },
         ]
 
         collected = report.collect_badge_events(events)
         self.assertEqual([event.person_name for event in collected], ["Grace Hopper", "Ada Lovelace"])
+        self.assertEqual([event.status for event in collected], ["Rejected", "Accepted"])
         self.assertEqual(collected[0].created_at, datetime(2026, 7, 1, 8, 45, tzinfo=timezone.utc))
         self.assertEqual(collected[1].created_at, datetime(2026, 7, 10, 15, 30, tzinfo=timezone.utc))
 
@@ -98,11 +99,13 @@ class BadgeReportTests(unittest.TestCase):
                 created_at=datetime(2026, 7, 1, 8, 45, tzinfo=timezone.utc),
                 person_name="Grace Hopper",
                 credentials_number="9876",
+                status="Rejected",
             ),
             report.BadgeEvent(
                 created_at=datetime(2026, 7, 10, 15, 30, tzinfo=timezone.utc),
                 person_name="Ada Lovelace",
                 credentials_number="1234",
+                status="Accepted",
             ),
         ]
         message = report.build_email(
@@ -120,11 +123,12 @@ class BadgeReportTests(unittest.TestCase):
         body = message.get_body(preferencelist=("plain",)).get_content()
         self.assertIn("Doorflow badge report for Woodshop", body)
         self.assertIn("Grace Hopper", body)
-        self.assertIn("Date/Time Eastern", body)
-        self.assertIn("2026-07-01 04:45:00 EDT", body)
+        self.assertIn("Accepted/Rejected", body)
+        self.assertIn("2026-07-01 04:45:00 EDT | Rejected | Grace Hopper | 9876", body)
         attachment_text = message.get_payload()[1].get_content()
-        self.assertIn("date_time_eastern,person_name,fob_number", attachment_text)
+        self.assertIn("date_time_eastern,accepted_rejected,person_name,fob_number", attachment_text)
         self.assertIn("Grace Hopper", attachment_text)
+        self.assertIn("Rejected", attachment_text)
 
 
 if __name__ == "__main__":

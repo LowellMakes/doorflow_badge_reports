@@ -18,6 +18,8 @@ from urllib import request as urllib_request
 DEFAULT_CONFIG = Path(__file__).with_name("config.json")
 DEFAULT_LOOKBACK_DAYS = 30
 DEFAULT_ADMIT_EVENT_CODES = (10, 11, 12, 13, 14, 15, 16, 17, 18, 70)
+DEFAULT_REJECT_EVENT_CODES = (20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 71, 72, 73)
+DEFAULT_ACCESS_EVENT_CODES = DEFAULT_ADMIT_EVENT_CODES + DEFAULT_REJECT_EVENT_CODES
 
 
 @dataclass(frozen=True)
@@ -55,6 +57,7 @@ class BadgeEvent:
     created_at: dt.datetime
     person_name: str
     credentials_number: str
+    status: str
 
     @property
     def created_at_eastern(self) -> dt.datetime:
@@ -244,7 +247,7 @@ def fetch_events(
     token: str,
     channel_id: int,
     since: dt.datetime,
-    event_codes: Sequence[int] = DEFAULT_ADMIT_EVENT_CODES,
+    event_codes: Sequence[int] = DEFAULT_ACCESS_EVENT_CODES,
     page_size: int = 1000,
 ) -> list[dict]:
     since_text = since.astimezone(dt.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
@@ -297,6 +300,14 @@ def _to_event_record(event: dict) -> EventRecord:
     )
 
 
+def _event_status(event_code: int | None) -> str:
+    if event_code in DEFAULT_ADMIT_EVENT_CODES:
+        return "Accepted"
+    if event_code in DEFAULT_REJECT_EVENT_CODES:
+        return "Rejected"
+    return "Unknown"
+
+
 def collect_badge_events(events: Iterable[dict]) -> list[BadgeEvent]:
     collected: list[BadgeEvent] = []
     for raw_event in events:
@@ -306,6 +317,7 @@ def collect_badge_events(events: Iterable[dict]) -> list[BadgeEvent]:
                 created_at=event.created_at,
                 person_name=event.person_name,
                 credentials_number=event.credentials_number,
+                status=_event_status(event.event_code),
             )
         )
     collected.sort(key=lambda item: item.created_at)
@@ -326,12 +338,12 @@ def render_body(
         f"Recipient: {recipient}",
         f"Total badge events: {len(events)}",
         "",
-        "Date/Time Eastern | Person | Fob #",
-        "----------------- | ------ | -----",
+        "Date/Time Eastern | Accepted/Rejected | Person | Fob #",
+        "----------------- | ----------------- | ------ | -----",
     ]
     for event in events:
         lines.append(
-            f"{_format_eastern(event.created_at)} | {event.display_name} | {event.credentials_number or '-'}"
+            f"{_format_eastern(event.created_at)} | {event.status} | {event.display_name} | {event.credentials_number or '-'}"
         )
     return "\n".join(lines) + "\n"
 
@@ -341,12 +353,14 @@ def _events_csv(events: Sequence[BadgeEvent]) -> str:
     writer = csv.writer(buffer)
     writer.writerow([
         "date_time_eastern",
+        "accepted_rejected",
         "person_name",
         "fob_number",
     ])
     for event in events:
         writer.writerow([
             _format_eastern(event.created_at),
+            event.status,
             event.display_name,
             event.credentials_number,
         ])
