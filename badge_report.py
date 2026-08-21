@@ -58,6 +58,7 @@ class AppConfig:
     api_base: str
     sendmail_path: str
     from_address: str
+    default_email: str
     shops: tuple[ShopConfig, ...]
 
     @property
@@ -137,16 +138,20 @@ def load_config(path: Path | str = DEFAULT_CONFIG) -> AppConfig:
     api_base = str(raw.get("api_base") or "").strip()
     sendmail_path = str(raw.get("sendmail_path") or "").strip()
     from_address = str(raw.get("from_address") or "").strip()
+    default_email = str(raw.get("default_email") or raw.get("default_recipient_email") or from_address or "").strip()
     if not api_base:
         raise ValueError("config.json must define api_base")
     if not sendmail_path:
         raise ValueError("config.json must define sendmail_path")
     if not from_address:
         raise ValueError("config.json must define from_address")
+    if not default_email:
+        raise ValueError("config.json must define default_email")
     return AppConfig(
         api_base=api_base,
         sendmail_path=sendmail_path,
         from_address=from_address,
+        default_email=default_email,
         shops=tuple(shops),
     )
 
@@ -391,6 +396,21 @@ def _format_bullet_lines(title: str, items: Sequence[str]) -> list[str]:
     return lines
 
 
+def _unique_addresses(addresses: Sequence[str]) -> list[str]:
+    unique: list[str] = []
+    seen: set[str] = set()
+    for address in addresses:
+        normalized = address.strip()
+        if not normalized:
+            continue
+        key = normalized.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(normalized)
+    return unique
+
+
 def build_summary_lines(
     *,
     events: Sequence[BadgeEvent],
@@ -443,7 +463,6 @@ def render_body(
     *,
     shop: ShopConfig,
     period_label: str,
-    recipient: str,
     events: Sequence[BadgeEvent],
     period_days: int,
 ) -> str:
@@ -451,7 +470,6 @@ def render_body(
         f"Doorflow badge report for {shop.name}",
         f"Door: {shop.display_door}",
         f"Period: {period_label}",
-        f"Recipient: {recipient}",
     ]
     lines.extend(build_summary_lines(events=events, period_days=period_days, summary_config=shop.report_summary))
     lines.extend([
@@ -489,21 +507,21 @@ def build_email(
     *,
     subject: str,
     sender: str,
-    recipient: str,
+    recipients: Sequence[str],
     shop: ShopConfig,
     period_label: str,
     events: Sequence[BadgeEvent],
     period_days: int,
 ) -> EmailMessage:
+    recipient_list = _unique_addresses(recipients)
     message = EmailMessage()
     message["Subject"] = subject
     message["From"] = sender
-    message["To"] = recipient
+    message["To"] = ", ".join(recipient_list)
     message.set_content(
         render_body(
             shop=shop,
             period_label=period_label,
-            recipient=recipient,
             events=events,
             period_days=period_days,
         )
@@ -543,10 +561,11 @@ def run(argv: Sequence[str] | None = None) -> int:
     since = _utc_now() - dt.timedelta(days=args.days)
     events = fetch_events(config.api_base, token, channel_id, since)
     badge_events = collect_badge_events(events)
+    recipients = _unique_addresses([config.default_email, recipient])
     message = build_email(
         subject=subject,
         sender=config.from_address,
-        recipient=recipient,
+        recipients=recipients,
         shop=shop,
         period_label=period_label,
         events=badge_events,
@@ -558,7 +577,7 @@ def run(argv: Sequence[str] | None = None) -> int:
         return 0
 
     send_via_sendmail(message, config.sendmail_path, config.from_address)
-    print(f"Sent {len(badge_events)} badge events for {shop.name} to {recipient}")
+    print(f"Sent {len(badge_events)} badge events for {shop.name} to {', '.join(recipients)}")
     return 0
 
 

@@ -7,7 +7,7 @@ Requirements:
 - A DoorFlow OAuth access token in the environment
 
 The repo is intentionally config-driven:
-- `config.json` holds the API base URL, sendmail path, sender address, shop/door definitions, and per-shop summary toggles
+- `config.json` holds the API base URL, sendmail path, sender address, shop/door definitions, per-shop summary toggles, and the default copy recipient
 - `badge_report.py` contains the report logic only
 - `DOORFLOW_ACCESS_TOKEN` is the preferred environment variable for live API access
 

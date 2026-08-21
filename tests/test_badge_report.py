@@ -25,11 +25,12 @@ class BadgeReportTests(unittest.TestCase):
                   "api_base": "https://api.doorflow.com/api/3",
                   "sendmail_path": "/usr/sbin/sendmail",
                   "from_address": "sender@example.invalid",
+                  "default_email": "sender@example.invalid",
                   "shops": [
                     {
                       "name": "Woodshop",
                       "doorflow_channel_name": "Wood Shop Door",
-                      "captain_email": "sender@example.invalid",
+                      "captain_email": "captain@example.invalid",
                       "summary": {
                         "enabled": false,
                         "top_n": 3,
@@ -45,7 +46,8 @@ class BadgeReportTests(unittest.TestCase):
             shop = report.find_shop(config, "woodshop")
             self.assertEqual(config.api_base, "https://api.doorflow.com/api/3")
             self.assertEqual(shop.doorflow_channel_name, "Wood Shop Door")
-            self.assertEqual(shop.captain_email, "sender@example.invalid")
+            self.assertEqual(shop.captain_email, "captain@example.invalid")
+            self.assertEqual(config.default_email, "sender@example.invalid")
             self.assertFalse(shop.report_summary.enabled)
             self.assertEqual(shop.report_summary.top_n, 3)
             self.assertFalse(shop.report_summary.show_average_per_day)
@@ -60,6 +62,7 @@ class BadgeReportTests(unittest.TestCase):
             api_base="https://api.doorflow.com/api/3",
             sendmail_path="/usr/sbin/sendmail",
             from_address="sender@example.invalid",
+            default_email="sender@example.invalid",
             shops=(shop,),
         )
         with patch.object(
@@ -189,7 +192,7 @@ class BadgeReportTests(unittest.TestCase):
         message = report.build_email(
             subject="Woodshop badge report",
             sender="sender@example.invalid",
-            recipient="sender@example.invalid",
+            recipients=["sender@example.invalid", "captain@example.invalid"],
             shop=shop,
             period_label="Last 30 Days",
             events=events,
@@ -198,10 +201,11 @@ class BadgeReportTests(unittest.TestCase):
 
         self.assertIsInstance(message, EmailMessage)
         self.assertEqual(message["Subject"], "Woodshop badge report")
-        self.assertEqual(message["To"], "sender@example.invalid")
+        self.assertEqual(message["To"], "sender@example.invalid, captain@example.invalid")
         body = message.get_body(preferencelist=("plain",)).get_content()
         self.assertIn("Doorflow badge report for Woodshop", body)
         self.assertIn("Summary:", body)
+        self.assertNotIn("Recipient:", body)
         self.assertIn("Accepted/Rejected", body)
         self.assertIn("2026-07-01 04:45:00 EDT | Rejected | Grace Hopper | 9876", body)
         attachment_text = message.get_payload()[1].get_content()

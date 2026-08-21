@@ -1,12 +1,13 @@
 {
   "api_base": "https://api.doorflow.com/api/3",
   "from_address": "sender@example.invalid",
+  "default_email": "sender@example.invalid",
   "sendmail_path": "/usr/sbin/sendmail",
   "shops": [
     {
       "name": "Woodshop",
       "doorflow_channel_name": "Woodshop",
-      "captain_email": "sender@example.invalid",
+      "captain_email": "captain@example.invalid",
       "summary": {
         "enabled": true,
         "top_n": 5
