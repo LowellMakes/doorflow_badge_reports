@@ -61,7 +61,7 @@ class BadgeEvent:
 
     @property
     def created_at_eastern(self) -> dt.datetime:
-        return self.created_at.astimezone(ZoneInfo("America/New_York"))
+        return self.created_at.astimezone(_eastern_tz_for(self.created_at))
 
     @property
     def display_name(self) -> str:
@@ -106,6 +106,8 @@ def load_config(path: Path | str = DEFAULT_CONFIG) -> AppConfig:
         raise ValueError("config.json must define api_base")
     if not sendmail_path:
         raise ValueError("config.json must define sendmail_path")
+    if not from_address:
+        raise ValueError("config.json must define from_address")
     return AppConfig(
         api_base=api_base,
         sendmail_path=sendmail_path,
@@ -425,7 +427,7 @@ def run(argv: Sequence[str] | None = None) -> int:
     badge_events = collect_badge_events(events)
     message = build_email(
         subject=subject,
-        sender=config.from_address or recipient,
+        sender=config.from_address,
         recipient=recipient,
         shop=shop,
         period_label=period_label,
