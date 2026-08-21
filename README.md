@@ -2,7 +2,9 @@
 
 Self-contained monthly reporting for Doorflow shop badges.
 
-The repo is intentionally config-driven:
+Requirements:
+- Python 3.10+ (run with `python3`, not `python` on older systems)
+- `DOORFLOW_AUTH_KEY` in the environment at runtime
 - `config.json` holds API base, sendmail path, sender address, and shop definitions
 - `badge_report.py` contains the logic only
 - `DOORFLOW_AUTH_KEY` supplies the live Doorflow auth token at runtime
@@ -28,11 +30,11 @@ The bundled config starts with Woodshop and sends the test report to `sender@exa
 
 3. Dry-run the default shop:
 
-   python badge_report.py --dry-run
+   python3 badge_report.py --dry-run
 
 4. Send the report:
 
-   python badge_report.py
+   python3 badge_report.py
 
 ## Changing shops later
 
