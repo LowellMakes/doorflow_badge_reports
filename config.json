@@ -6,7 +6,7 @@
   "shops": [
     {
       "name": "Woodshop",
-      "doorflow_channel_name": "Woodshop",
+      "doorflow_channel_name": "Wood Shop Door",
       "captain_email": "captain@example.invalid",
       "summary": {
         "enabled": true,
