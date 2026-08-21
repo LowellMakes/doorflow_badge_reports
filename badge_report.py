@@ -51,30 +51,24 @@ class AppConfig:
 
 
 @dataclass(frozen=True)
-class BadgeSummary:
-    person_id: int | None
+class BadgeEvent:
+    created_at: dt.datetime
     person_name: str
     credentials_number: str
-    first_seen: dt.datetime
-    last_seen: dt.datetime
-    event_count: int
+
+    @property
+    def created_at_eastern(self) -> dt.datetime:
+        return self.created_at.astimezone(ZoneInfo("America/New_York"))
 
     @property
     def display_name(self) -> str:
-        if self.person_name:
-            return self.person_name
-        if self.person_id is not None:
-            return f"Person {self.person_id}"
-        return "(unknown)"
+        return self.person_name or "(unknown)"
 
 
 @dataclass(frozen=True)
 class EventRecord:
-    person_id: int | None
     person_name: str
     credentials_number: str
-    door_controller_id: int | None
-    door_controller_name: str
     created_at: dt.datetime
     event_code: int | None
     event_label: str
@@ -138,8 +132,29 @@ def _utc_now() -> dt.datetime:
     return dt.datetime.now(dt.timezone.utc)
 
 
-def _format_dt(value: dt.datetime) -> str:
-    return value.astimezone(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+def _us_dst_bounds_utc(year: int) -> tuple[dt.datetime, dt.datetime]:
+    def nth_weekday(month: int, weekday: int, n: int) -> dt.date:
+        first = dt.date(year, month, 1)
+        days_until_weekday = (weekday - first.weekday()) % 7
+        return first + dt.timedelta(days=days_until_weekday + (n - 1) * 7)
+
+    dst_start = nth_weekday(3, 6, 2)  # second Sunday in March
+    dst_end = nth_weekday(11, 6, 1)   # first Sunday in November
+    return (
+        dt.datetime(year, 3, dst_start.day, 7, 0, tzinfo=dt.timezone.utc),
+        dt.datetime(year, 11, dst_end.day, 6, 0, tzinfo=dt.timezone.utc),
+    )
+
+
+def _eastern_tz_for(value: dt.datetime) -> dt.tzinfo:
+    start_utc, end_utc = _us_dst_bounds_utc(value.year)
+    is_dst = start_utc <= value < end_utc
+    offset = dt.timedelta(hours=-4 if is_dst else -5)
+    return dt.timezone(offset, "EDT" if is_dst else "EST")
+
+
+def _format_eastern(value: dt.datetime) -> str:
+    return value.astimezone(_eastern_tz_for(value)).strftime("%Y-%m-%d %H:%M:%S %Z")
 
 
 def _parse_dt(value: str) -> dt.datetime:
@@ -274,54 +289,27 @@ def _to_event_record(event: dict) -> EventRecord:
     if not created_at_raw:
         raise ValueError(f"Event missing created_at: {event!r}")
     return EventRecord(
-        person_id=(int(event["person_id"]) if event.get("person_id") not in (None, "") else None),
         person_name=str(event.get("person_name") or event.get("person") or ""),
         credentials_number=str(event.get("credentials_number") or event.get("credential_number") or ""),
-        door_controller_id=(int(event["door_controller_id"]) if event.get("door_controller_id") not in (None, "") else None),
-        door_controller_name=str(event.get("door_controller_name") or event.get("channel_name") or ""),
         created_at=_parse_dt(str(created_at_raw)),
         event_code=(int(event["event_code"]) if event.get("event_code") not in (None, "") else None),
         event_label=str(event.get("event_label") or ""),
     )
 
 
-def summarize_badge_events(events: Iterable[dict]) -> list[BadgeSummary]:
-    buckets: dict[str, dict[str, object]] = {}
+def collect_badge_events(events: Iterable[dict]) -> list[BadgeEvent]:
+    collected: list[BadgeEvent] = []
     for raw_event in events:
         event = _to_event_record(raw_event)
-        key = str(event.person_id) if event.person_id is not None else event.person_name or event.credentials_number
-        if not key:
-            continue
-        bucket = buckets.get(key)
-        if bucket is None:
-            buckets[key] = {
-                "person_id": event.person_id,
-                "person_name": event.person_name,
-                "credentials_number": event.credentials_number,
-                "first_seen": event.created_at,
-                "last_seen": event.created_at,
-                "event_count": 1,
-            }
-            continue
-        bucket["person_name"] = bucket["person_name"] or event.person_name
-        bucket["credentials_number"] = bucket["credentials_number"] or event.credentials_number
-        bucket["first_seen"] = min(bucket["first_seen"], event.created_at)  # type: ignore[arg-type]
-        bucket["last_seen"] = max(bucket["last_seen"], event.created_at)  # type: ignore[arg-type]
-        bucket["event_count"] = int(bucket["event_count"]) + 1
-
-    summaries = [
-        BadgeSummary(
-            person_id=bucket["person_id"],
-            person_name=str(bucket["person_name"]),
-            credentials_number=str(bucket["credentials_number"]),
-            first_seen=bucket["first_seen"],  # type: ignore[arg-type]
-            last_seen=bucket["last_seen"],  # type: ignore[arg-type]
-            event_count=int(bucket["event_count"]),
+        collected.append(
+            BadgeEvent(
+                created_at=event.created_at,
+                person_name=event.person_name,
+                credentials_number=event.credentials_number,
+            )
         )
-        for bucket in buckets.values()
-    ]
-    summaries.sort(key=lambda item: (item.last_seen, item.display_name.casefold()), reverse=True)
-    return summaries
+    collected.sort(key=lambda item: item.created_at)
+    return collected
 
 
 def render_body(
@@ -329,49 +317,39 @@ def render_body(
     shop: ShopConfig,
     period_label: str,
     recipient: str,
-    summaries: Sequence[BadgeSummary],
+    events: Sequence[BadgeEvent],
 ) -> str:
-    total_events = sum(summary.event_count for summary in summaries)
     lines = [
         f"Doorflow badge report for {shop.name}",
         f"Door: {shop.display_door}",
         f"Period: {period_label}",
         f"Recipient: {recipient}",
-        f"Unique people: {len(summaries)}",
-        f"Total badge events: {total_events}",
+        f"Total badge events: {len(events)}",
         "",
-        "Name | Person ID | Credentials | First badge | Last badge | Badge count",
-        "----- | --------- | ----------- | ----------- | ---------- | -----------",
+        "Date/Time Eastern | Person | Fob #",
+        "----------------- | ------ | -----",
     ]
-    for summary in summaries:
+    for event in events:
         lines.append(
-            f"{summary.display_name} | {summary.person_id if summary.person_id is not None else '-'} | {summary.credentials_number or '-'} | {_format_dt(summary.first_seen)} | {_format_dt(summary.last_seen)} | {summary.event_count}"
+            f"{_format_eastern(event.created_at)} | {event.display_name} | {event.credentials_number or '-'}"
         )
     return "\n".join(lines) + "\n"
 
 
-def _summaries_csv(summaries: Sequence[BadgeSummary]) -> str:
+def _events_csv(events: Sequence[BadgeEvent]) -> str:
     buffer = io.StringIO()
     writer = csv.writer(buffer)
     writer.writerow([
-        "person_id",
+        "date_time_eastern",
         "person_name",
-        "credentials_number",
-        "first_seen_utc",
-        "last_seen_utc",
-        "badge_count",
+        "fob_number",
     ])
-    for summary in summaries:
-        writer.writerow(
-            [
-                summary.person_id if summary.person_id is not None else "",
-                summary.person_name,
-                summary.credentials_number,
-                _format_dt(summary.first_seen),
-                _format_dt(summary.last_seen),
-                summary.event_count,
-            ]
-        )
+    for event in events:
+        writer.writerow([
+            _format_eastern(event.created_at),
+            event.display_name,
+            event.credentials_number,
+        ])
     return buffer.getvalue()
 
 
@@ -382,7 +360,7 @@ def build_email(
     recipient: str,
     shop: ShopConfig,
     period_label: str,
-    summaries: Sequence[BadgeSummary],
+    events: Sequence[BadgeEvent],
 ) -> EmailMessage:
     message = EmailMessage()
     message["Subject"] = subject
@@ -393,11 +371,11 @@ def build_email(
             shop=shop,
             period_label=period_label,
             recipient=recipient,
-            summaries=summaries,
+            events=events,
         )
     )
     attachment_name = f"{shop.name.lower()}-doorflow-badge-report-{period_label.replace(' ', '_').lower()}.csv"
-    message.add_attachment(_summaries_csv(summaries), subtype="csv", filename=attachment_name)
+    message.add_attachment(_events_csv(events), subtype="csv", filename=attachment_name)
     return message
 
 
@@ -430,14 +408,14 @@ def run(argv: Sequence[str] | None = None) -> int:
     channel_id = resolve_channel_id(config, shop, token)
     since = _utc_now() - dt.timedelta(days=args.days)
     events = fetch_events(config.api_base, token, channel_id, since)
-    summaries = summarize_badge_events(events)
+    badge_events = collect_badge_events(events)
     message = build_email(
         subject=subject,
         sender=config.from_address or recipient,
         recipient=recipient,
         shop=shop,
         period_label=period_label,
-        summaries=summaries,
+        events=badge_events,
     )
 
     if args.dry_run:
@@ -445,7 +423,7 @@ def run(argv: Sequence[str] | None = None) -> int:
         return 0
 
     send_via_sendmail(message, config.sendmail_path)
-    print(f"Sent {len(summaries)} badge summaries for {shop.name} to {recipient}")
+    print(f"Sent {len(badge_events)} badge events for {shop.name} to {recipient}")
     return 0
 
 
