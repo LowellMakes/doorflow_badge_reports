@@ -20,6 +20,8 @@ class BadgeReportTests(unittest.TestCase):
             cfg.write_text(
                 """
                 {
+                  "api_base": "https://admin.doorflow.com/api/2",
+                  "sendmail_path": "/usr/sbin/sendmail",
                   "from_address": "sender@example.invalid",
                   "shops": [
                     {"name": "Woodshop", "doorflow_group_id": "4622", "captain_email": "sender@example.invalid"}

@@ -15,9 +15,7 @@ from typing import Iterable, Sequence
 from urllib import request as urllib_request
 
 
-DEFAULT_API_BASE = "https://admin.doorflow.com/api/2"
 DEFAULT_CONFIG = Path(__file__).with_name("config.json")
-DEFAULT_SENDMAIL = "/usr/sbin/sendmail"
 
 
 @dataclass(frozen=True)
@@ -33,6 +31,12 @@ class AppConfig:
     sendmail_path: str
     from_address: str
     shops: tuple[ShopConfig, ...]
+
+    @property
+    def default_shop(self) -> ShopConfig:
+        if not self.shops:
+            raise ValueError("config.json must define at least one shop")
+        return self.shops[0]
 
 
 @dataclass(frozen=True)
@@ -66,10 +70,17 @@ def load_config(path: Path | str = DEFAULT_CONFIG) -> AppConfig:
         )
         for shop in raw["shops"]
     )
+    api_base = str(raw.get("api_base"))
+    sendmail_path = str(raw.get("sendmail_path"))
+    from_address = str(raw.get("from_address", ""))
+    if not api_base or api_base == "None":
+        raise ValueError("config.json must define api_base")
+    if not sendmail_path or sendmail_path == "None":
+        raise ValueError("config.json must define sendmail_path")
     return AppConfig(
-        api_base=str(raw.get("api_base", DEFAULT_API_BASE)),
-        sendmail_path=str(raw.get("sendmail_path", DEFAULT_SENDMAIL)),
-        from_address=str(raw.get("from_address", "")),
+        api_base=api_base,
+        sendmail_path=sendmail_path,
+        from_address=from_address,
         shops=shops,
     )
 
@@ -228,7 +239,7 @@ def _auth_key_from_env() -> str:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Build and email a monthly Doorflow badge report.")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG), help="Path to config.json")
-    parser.add_argument("--shop", default="Woodshop", help="Shop name to report on")
+    parser.add_argument("--shop", default=None, help="Shop name to report on")
     parser.add_argument("--recipient", default=None, help="Override the configured recipient")
     parser.add_argument("--subject", default=None, help="Override the email subject")
     parser.add_argument("--period-label", default=None, help="Override the month label")
@@ -239,7 +250,8 @@ def build_parser() -> argparse.ArgumentParser:
 def run(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     config = load_config(args.config)
-    shop = find_shop(config, args.shop)
+    shop_name = args.shop or config.default_shop.name
+    shop = find_shop(config, shop_name)
     recipient = args.recipient or shop.captain_email
     period_label = args.period_label or previous_month_label()
     subject = args.subject or f"{shop.name} Doorflow badge report - {period_label}"
