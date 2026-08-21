@@ -1,15 +1,22 @@
 # Doorflow Badge Report
 
-A self-contained monthly report script for Doorflow membership badges by shop.
+Self-contained monthly reporting for Doorflow shop badges.
 
-For now it ships with the Woodshop configuration and sends the report to sender@example.invalid for testing.
+The repo is intentionally config-driven:
+- `config.json` holds API base, sendmail path, sender address, and shop definitions
+- `badge_report.py` contains the logic only
+- `DOORFLOW_AUTH_KEY` supplies the live Doorflow auth token at runtime
+
+## Current test setup
+
+The bundled config starts with Woodshop and sends the test report to `sender@example.invalid`.
 
 ## What it does
 
 - Fetches all Doorflow people from the API
-- Filters the people assigned to the requested shop's Doorflow group
+- Filters the people assigned to the selected shop’s Doorflow group
 - Builds a human-readable report and CSV attachment
-- Emails the report via local sendmail
+- Emails the report through local sendmail
 
 ## Quick start
 
@@ -17,9 +24,9 @@ For now it ships with the Woodshop configuration and sends the report to sender@
 
    export DOORFLOW_AUTH_KEY='your-real-doorflow-auth-key'
 
-2. Review or edit `config.json`.
+2. Review `config.json`.
 
-3. Dry-run the Woodshop report:
+3. Dry-run the default shop:
 
    python badge_report.py --dry-run
 
@@ -27,17 +34,19 @@ For now it ships with the Woodshop configuration and sends the report to sender@
 
    python badge_report.py
 
-## Customizing later
+## Changing shops later
 
-Add more entries to `config.json` under `shops` for each room/shop:
+Add more entries to `config.json` under `shops`:
 
-- name
-- doorflow_group_id
-- captain_email
+- `name`
+- `doorflow_group_id`
+- `captain_email`
 
-Then run:
+Then run, for example:
 
     python badge_report.py --shop MetalShop
+
+If you omit `--shop`, the first shop in `config.json` is used.
 
 ## Testing
 
