@@ -13,7 +13,7 @@ The repo is intentionally config-driven:
 
 Current test setup:
 - Woodshop is the default shop in `config.json`
-- reports go to the shop captain plus `sender@example.invalid`
+- reports go to the shop captain plus whatever address is set in `default_email`
 
 What it does:
 - looks up the configured door controller for the selected shop
@@ -52,6 +52,8 @@ Then run, for example:
     python3 badge_report.py --shop MetalShop
 
 If you omit `--shop`, the script checks every configured shop and sends only the ones that are due.
+If you omit `--days`, each shop uses its configured interval from `report_every_days` (default 30).
+If you do pass `--days`, it overrides the interval for that run.
 
 Manual trigger examples:
 
