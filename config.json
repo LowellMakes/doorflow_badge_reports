@@ -1,0 +1,12 @@
+{
+  "api_base": "https://admin.doorflow.com/api/2",
+  "from_address": "sender@example.invalid",
+  "sendmail_path": "/usr/sbin/sendmail",
+  "shops": [
+    {
+      "name": "Woodshop",
+      "doorflow_group_id": "4622",
+      "captain_email": "sender@example.invalid"
+    }
+  ]
+}
