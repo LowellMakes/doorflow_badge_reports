@@ -3,9 +3,11 @@
   "from_address": "sender@example.invalid",
   "default_email": "sender@example.invalid",
   "sendmail_path": "/usr/sbin/sendmail",
+  "state_path": "badge_report_state.json",
   "shops": [
     {
       "name": "Woodshop",
+      "report_every_days": 30,
       "doorflow_channel_name": "Wood Shop Door",
       "captain_email": "captain@example.invalid",
       "summary": {

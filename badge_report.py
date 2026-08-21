@@ -8,6 +8,7 @@ import io
 import json
 import os
 import subprocess
+import sys
 from collections import Counter
 from dataclasses import dataclass, field
 from email.message import EmailMessage
@@ -29,6 +30,7 @@ class ShopConfig:
     captain_email: str
     doorflow_channel_name: str | None = None
     doorflow_channel_id: int | None = None
+    report_every_days: int = 30
     report_summary: "ReportSummaryConfig" = field(default_factory=lambda: ReportSummaryConfig())
 
     @property
@@ -59,6 +61,7 @@ class AppConfig:
     sendmail_path: str
     from_address: str
     default_email: str
+    state_path: Path
     shops: tuple[ShopConfig, ...]
 
     @property
@@ -116,7 +119,8 @@ def _parse_summary_config(raw: object | None) -> ReportSummaryConfig:
 
 
 def load_config(path: Path | str = DEFAULT_CONFIG) -> AppConfig:
-    raw = _read_json(Path(path))
+    config_path = Path(path)
+    raw = _read_json(config_path)
     shops: list[ShopConfig] = []
     for shop in raw["shops"]:
         doorflow_channel_id = shop.get("doorflow_channel_id")
@@ -125,12 +129,14 @@ def load_config(path: Path | str = DEFAULT_CONFIG) -> AppConfig:
         else:
             parsed_channel_id = int(doorflow_channel_id)
         summary = _parse_summary_config(shop.get("summary") or shop.get("report_summary"))
+        report_every_days = int(shop.get("report_every_days", 30))
         shops.append(
             ShopConfig(
                 name=str(shop["name"]),
                 captain_email=str(shop["captain_email"]),
                 doorflow_channel_name=(str(shop["doorflow_channel_name"]) if shop.get("doorflow_channel_name") else None),
                 doorflow_channel_id=parsed_channel_id,
+                report_every_days=report_every_days,
                 report_summary=summary,
             )
         )
@@ -139,6 +145,13 @@ def load_config(path: Path | str = DEFAULT_CONFIG) -> AppConfig:
     sendmail_path = str(raw.get("sendmail_path") or "").strip()
     from_address = str(raw.get("from_address") or "").strip()
     default_email = str(raw.get("default_email") or raw.get("default_recipient_email") or from_address or "").strip()
+    state_path_raw = raw.get("state_path")
+    if state_path_raw in (None, ""):
+        state_path = config_path.with_name("badge_report_state.json")
+    else:
+        state_path = Path(state_path_raw)
+        if not state_path.is_absolute():
+            state_path = config_path.parent / state_path
     if not api_base:
         raise ValueError("config.json must define api_base")
     if not sendmail_path:
@@ -152,6 +165,7 @@ def load_config(path: Path | str = DEFAULT_CONFIG) -> AppConfig:
         sendmail_path=sendmail_path,
         from_address=from_address,
         default_email=default_email,
+        state_path=state_path,
         shops=tuple(shops),
     )
 
@@ -411,6 +425,100 @@ def _unique_addresses(addresses: Sequence[str]) -> list[str]:
     return unique
 
 
+@dataclass(frozen=True)
+class ShopReportPlan:
+    shop: ShopConfig
+    recipients: tuple[str, ...]
+    since: dt.datetime
+    period_days: float
+    last_sent_at: dt.datetime | None
+
+
+def load_state(path: Path | str) -> dict[str, dt.datetime]:
+    state_path = Path(path)
+    if not state_path.exists():
+        return {}
+    raw = _read_json(state_path)
+    entries = raw.get("last_sent_at", raw)
+    if not isinstance(entries, dict):
+        raise ValueError("state file must contain a mapping of shop names to timestamps")
+    state: dict[str, dt.datetime] = {}
+    for shop_name, timestamp in entries.items():
+        if timestamp in (None, ""):
+            continue
+        state[str(shop_name)] = _parse_dt(str(timestamp))
+    return state
+
+
+def save_state(path: Path | str, state: dict[str, dt.datetime]) -> None:
+    state_path = Path(path)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "last_sent_at": {
+            shop_name: timestamp.astimezone(dt.timezone.utc).isoformat().replace("+00:00", "Z")
+            for shop_name, timestamp in sorted(state.items())
+        }
+    }
+    state_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _report_window_start(last_sent_at: dt.datetime | None, report_every_days: int, now: dt.datetime) -> dt.datetime:
+    if last_sent_at is not None:
+        return last_sent_at
+    return now - dt.timedelta(days=report_every_days)
+
+
+def _is_report_due(last_sent_at: dt.datetime | None, report_every_days: int, now: dt.datetime) -> bool:
+    if last_sent_at is None:
+        return True
+    return (now - last_sent_at) >= dt.timedelta(days=report_every_days)
+
+
+def _period_days_since(since: dt.datetime, now: dt.datetime) -> float:
+    return max((now - since).total_seconds() / 86400.0, 1.0)
+
+
+def plan_shop_reports(
+    config: AppConfig,
+    state: dict[str, dt.datetime],
+    now: dt.datetime,
+    *,
+    shop_name: str | None = None,
+    force: bool = False,
+    days_override: int | None = None,
+    recipient_override: str | None = None,
+) -> list[ShopReportPlan]:
+    if shop_name:
+        selected_shops = [find_shop(config, shop_name)]
+    else:
+        selected_shops = list(config.shops)
+
+    plans: list[ShopReportPlan] = []
+    for shop in selected_shops:
+        interval_days = int(days_override or shop.report_every_days)
+        last_sent_at = state.get(shop.name)
+        due = force or _is_report_due(last_sent_at, interval_days, now)
+        if not due:
+            continue
+        since = _report_window_start(last_sent_at, interval_days, now)
+        recipients = _unique_addresses([config.default_email, recipient_override or shop.captain_email])
+        plans.append(
+            ShopReportPlan(
+                shop=shop,
+                recipients=tuple(recipients),
+                since=since,
+                period_days=_period_days_since(since, now),
+                last_sent_at=last_sent_at,
+            )
+        )
+    return plans
+
+
+def _default_period_label(period_days: float) -> str:
+    days = max(1, int(round(period_days)))
+    return f"Last {days} Day" if days == 1 else f"Last {days} Days"
+
+
 def build_summary_lines(
     *,
     events: Sequence[BadgeEvent],
@@ -536,13 +644,14 @@ def send_via_sendmail(message: EmailMessage, sendmail_path: str, envelope_from: 
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Build and email a DoorFlow badge report for a single door.")
+    parser = argparse.ArgumentParser(description="Build and email DoorFlow badge reports for configured shops.")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG), help="Path to config.json")
     parser.add_argument("--shop", default=None, help="Shop name to report on")
     parser.add_argument("--recipient", default=None, help="Override the configured recipient")
     parser.add_argument("--subject", default=None, help="Override the email subject")
     parser.add_argument("--period-label", default=None, help="Override the period label")
-    parser.add_argument("--days", type=int, default=DEFAULT_LOOKBACK_DAYS, help="Look back this many days")
+    parser.add_argument("--days", type=int, default=None, help="Override the lookback days for this run")
+    parser.add_argument("--force", action="store_true", help="Send even if the report is not yet due")
     parser.add_argument("--dry-run", action="store_true", help="Print the email instead of sending it")
     return parser
 
@@ -550,35 +659,57 @@ def build_parser() -> argparse.ArgumentParser:
 def run(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     config = load_config(args.config)
-    shop_name = args.shop or config.default_shop.name
-    shop = find_shop(config, shop_name)
-    recipient = args.recipient or shop.captain_email
-    period_label = args.period_label or f"Last {args.days} Days"
-    subject = args.subject or f"{shop.name} Doorflow badge report - {period_label}"
-
-    token = _auth_token_from_env()
-    channel_id = resolve_channel_id(config, shop, token)
-    since = _utc_now() - dt.timedelta(days=args.days)
-    events = fetch_events(config.api_base, token, channel_id, since)
-    badge_events = collect_badge_events(events)
-    recipients = _unique_addresses([config.default_email, recipient])
-    message = build_email(
-        subject=subject,
-        sender=config.from_address,
-        recipients=recipients,
-        shop=shop,
-        period_label=period_label,
-        events=badge_events,
-        period_days=args.days,
+    now = _utc_now()
+    state = load_state(config.state_path)
+    plans = plan_shop_reports(
+        config,
+        state,
+        now,
+        shop_name=args.shop,
+        force=args.force,
+        days_override=args.days,
+        recipient_override=args.recipient,
     )
-
-    if args.dry_run:
-        print(message)
+    if not plans:
+        print("No badge reports are due right now.")
         return 0
 
-    send_via_sendmail(message, config.sendmail_path, config.from_address)
-    print(f"Sent {len(badge_events)} badge events for {shop.name} to {', '.join(recipients)}")
-    return 0
+    token = _auth_token_from_env()
+    updated_state = dict(state)
+    had_errors = False
+    for plan in plans:
+        try:
+            channel_id = resolve_channel_id(config, plan.shop, token)
+            events = fetch_events(config.api_base, token, channel_id, plan.since)
+            badge_events = collect_badge_events(events)
+            period_label = args.period_label or _default_period_label(plan.period_days)
+            subject = args.subject or f"{plan.shop.name} Doorflow badge report - {period_label}"
+            message = build_email(
+                subject=subject,
+                sender=config.from_address,
+                recipients=plan.recipients,
+                shop=plan.shop,
+                period_label=period_label,
+                events=badge_events,
+                period_days=plan.period_days,
+            )
+            if args.dry_run:
+                print(f"=== {plan.shop.name} ===")
+                print(message)
+            else:
+                send_via_sendmail(message, config.sendmail_path, config.from_address)
+                print(
+                    f"Sent {len(badge_events)} badge events for {plan.shop.name} to {', '.join(plan.recipients)}"
+                )
+            updated_state[plan.shop.name] = now
+        except Exception as exc:
+            had_errors = True
+            print(f"Error processing {plan.shop.name}: {exc}", file=sys.stderr)
+
+    if not args.dry_run and updated_state != state:
+        save_state(config.state_path, updated_state)
+
+    return 1 if had_errors else 0
 
 
 if __name__ == "__main__":

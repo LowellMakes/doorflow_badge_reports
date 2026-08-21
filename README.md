@@ -7,13 +7,13 @@ Requirements:
 - A DoorFlow OAuth access token in the environment
 
 The repo is intentionally config-driven:
-- `config.json` holds the API base URL, sendmail path, sender address, shop/door definitions, per-shop summary toggles, and the default copy recipient
+- `config.json` holds the API base URL, sendmail path, sender address, shop/door definitions, per-shop summary toggles, the per-shop report interval, and the default copy recipient
 - `badge_report.py` contains the report logic only
 - `DOORFLOW_ACCESS_TOKEN` is the preferred environment variable for live API access
 
 Current test setup:
 - Woodshop is the default shop in `config.json`
-- the report is addressed to `sender@example.invalid`
+- reports go to the shop captain plus `sender@example.invalid`
 
 What it does:
 - looks up the configured door controller for the selected shop
@@ -51,7 +51,22 @@ Then run, for example:
 
     python3 badge_report.py --shop MetalShop
 
-If you omit `--shop`, the first shop in `config.json` is used.
+If you omit `--shop`, the script checks every configured shop and sends only the ones that are due.
+
+Manual trigger examples:
+
+- Force one shop immediately:
+
+      python3 badge_report.py --shop MetalShop --force
+
+- Force every configured shop immediately:
+
+      python3 badge_report.py --force
+
+State:
+
+- The script records last successful send times in `badge_report_state.json` by default.
+- `state_path` in `config.json` can override that location.
 
 Testing:
 

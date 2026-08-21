@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 import unittest
 from datetime import datetime, timezone
@@ -24,11 +25,13 @@ class BadgeReportTests(unittest.TestCase):
                 {
                   "api_base": "https://api.doorflow.com/api/3",
                   "sendmail_path": "/usr/sbin/sendmail",
+                  "state_path": "state.json",
                   "from_address": "sender@example.invalid",
                   "default_email": "sender@example.invalid",
                   "shops": [
                     {
                       "name": "Woodshop",
+                      "report_every_days": 30,
                       "doorflow_channel_name": "Wood Shop Door",
                       "captain_email": "captain@example.invalid",
                       "summary": {
@@ -47,6 +50,8 @@ class BadgeReportTests(unittest.TestCase):
             self.assertEqual(config.api_base, "https://api.doorflow.com/api/3")
             self.assertEqual(shop.doorflow_channel_name, "Wood Shop Door")
             self.assertEqual(shop.captain_email, "captain@example.invalid")
+            self.assertEqual(shop.report_every_days, 30)
+            self.assertEqual(config.state_path.name, "state.json")
             self.assertEqual(config.default_email, "sender@example.invalid")
             self.assertFalse(shop.report_summary.enabled)
             self.assertEqual(shop.report_summary.top_n, 3)
@@ -63,6 +68,7 @@ class BadgeReportTests(unittest.TestCase):
             sendmail_path="/usr/sbin/sendmail",
             from_address="sender@example.invalid",
             default_email="sender@example.invalid",
+            state_path=Path("state.json"),
             shops=(shop,),
         )
         with patch.object(
@@ -112,6 +118,157 @@ class BadgeReportTests(unittest.TestCase):
         self.assertEqual(args[0][:4], ["/usr/sbin/sendmail", "-f", "reports@example.invalid", "-t"])
         self.assertTrue(kwargs["check"])
         self.assertIn("hello", kwargs["input"].decode())
+
+    def test_run_sends_only_due_shops_and_updates_state(self) -> None:
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            cfg = tmp_path / "config.json"
+            state_path = tmp_path / "state.json"
+            cfg.write_text(
+                """
+                {
+                  "api_base": "https://api.doorflow.com/api/3",
+                  "sendmail_path": "/usr/sbin/sendmail",
+                  "state_path": "state.json",
+                  "from_address": "sender@example.invalid",
+                  "default_email": "sender@example.invalid",
+                  "shops": [
+                    {
+                      "name": "Woodshop",
+                      "report_every_days": 30,
+                      "doorflow_channel_name": "Wood Shop Door",
+                      "captain_email": "captain@example.invalid"
+                    },
+                    {
+                      "name": "Metal Shop",
+                      "report_every_days": 14,
+                      "doorflow_channel_name": "Metal Shop Door",
+                      "captain_email": "captain@example.invalid"
+                    }
+                  ]
+                }
+                """,
+                encoding="utf-8",
+            )
+            report.save_state(
+                state_path,
+                {
+                    "Woodshop": datetime(2026, 7, 28, 12, 0, tzinfo=timezone.utc),
+                    "Metal Shop": datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc),
+                },
+            )
+
+            send_calls = []
+
+            def fake_request_json(url, token):
+                if "/channels?" in url:
+                    return [
+                        {"id": 4622, "name": "Wood Shop Door"},
+                        {"id": 4722, "name": "Metal Shop Door"},
+                    ]
+                if "channels=4722" in url:
+                    return [
+                        {
+                            "person_name": "Ada Lovelace",
+                            "credentials_number": "1234",
+                            "created_at": "2026-07-29T08:45:00Z",
+                            "event_code": 10,
+                        }
+                    ]
+                if "channels=4622" in url:
+                    return []
+                raise AssertionError(url)
+
+            with patch.object(report, "_request_json", side_effect=fake_request_json), patch.object(
+                report, "send_via_sendmail", side_effect=lambda message, sendmail_path, envelope_from: send_calls.append(message)
+            ), patch.object(report, "_utc_now", return_value=datetime(2026, 7, 30, 12, 0, tzinfo=timezone.utc)):
+                os.environ["DOORFLOW_ACCESS_TOKEN"] = "test-token"
+                exit_code = report.run(["--config", str(cfg)])
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(len(send_calls), 1)
+            self.assertIn("Metal Shop", send_calls[0]["Subject"])
+            updated_state = report.load_state(state_path)
+            self.assertEqual(updated_state["Woodshop"], datetime(2026, 7, 28, 12, 0, tzinfo=timezone.utc))
+            self.assertEqual(updated_state["Metal Shop"], datetime(2026, 7, 30, 12, 0, tzinfo=timezone.utc))
+
+    def test_run_force_sends_not_due_shop(self) -> None:
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            cfg = tmp_path / "config.json"
+            cfg.write_text(
+                """
+                {
+                  "api_base": "https://api.doorflow.com/api/3",
+                  "sendmail_path": "/usr/sbin/sendmail",
+                  "state_path": "state.json",
+                  "from_address": "sender@example.invalid",
+                  "default_email": "sender@example.invalid",
+                  "shops": [
+                    {
+                      "name": "Woodshop",
+                      "report_every_days": 30,
+                      "doorflow_channel_name": "Wood Shop Door",
+                      "captain_email": "captain@example.invalid"
+                    }
+                  ]
+                }
+                """,
+                encoding="utf-8",
+            )
+            send_calls = []
+
+            def fake_request_json(url, token):
+                if "/channels?" in url:
+                    return [{"id": 4622, "name": "Wood Shop Door"}]
+                if "channels=4622" in url:
+                    return []
+                raise AssertionError(url)
+
+            with patch.object(report, "_request_json", side_effect=fake_request_json), patch.object(
+                report, "send_via_sendmail", side_effect=lambda message, sendmail_path, envelope_from: send_calls.append(message)
+            ), patch.object(report, "_utc_now", return_value=datetime(2026, 7, 30, 12, 0, tzinfo=timezone.utc)):
+                os.environ["DOORFLOW_ACCESS_TOKEN"] = "test-token"
+                exit_code = report.run(["--config", str(cfg), "--force", "--shop", "Woodshop"])
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(len(send_calls), 1)
+            self.assertIn("Woodshop", send_calls[0]["Subject"])
+        shop_wood = report.ShopConfig(
+            name="Woodshop",
+            captain_email="captain@example.invalid",
+            doorflow_channel_name="Wood Shop Door",
+            report_every_days=30,
+        )
+        shop_metal = report.ShopConfig(
+            name="Metal Shop",
+            captain_email="captain@example.invalid",
+            doorflow_channel_name="Metal Shop Door",
+            report_every_days=14,
+        )
+        config = report.AppConfig(
+            api_base="https://api.doorflow.com/api/3",
+            sendmail_path="/usr/sbin/sendmail",
+            from_address="sender@example.invalid",
+            default_email="sender@example.invalid",
+            state_path=Path("state.json"),
+            shops=(shop_wood, shop_metal),
+        )
+        now = datetime(2026, 7, 30, 12, 0, tzinfo=timezone.utc)
+        state = {
+            "Woodshop": datetime(2026, 7, 28, 12, 0, tzinfo=timezone.utc),
+            "Metal Shop": datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc),
+        }
+
+        plans = report.plan_shop_reports(config, state, now)
+        self.assertEqual([plan.shop.name for plan in plans], ["Metal Shop"])
+        self.assertEqual(plans[0].since, state["Metal Shop"])
+        self.assertEqual(plans[0].recipients, ("sender@example.invalid", "captain@example.invalid"))
+
+        forced = report.plan_shop_reports(config, state, now, force=True)
+        self.assertEqual([plan.shop.name for plan in forced], ["Woodshop", "Metal Shop"])
+        self.assertEqual(forced[0].since, state["Woodshop"])
+        self.assertEqual(forced[1].since, state["Metal Shop"])
 
     def test_build_summary_lines_includes_metrics_and_top_lists(self) -> None:
         events = [
