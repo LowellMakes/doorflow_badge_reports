@@ -11,6 +11,69 @@ The repo is intentionally config-driven:
 - `badge_report.py` contains the report logic only
 - `DOORFLOW_ACCESS_TOKEN` is the preferred environment variable for live API access
 
+Configuration reference:
+
+Top-level keys:
+- `api_base`: DoorFlow API base URL, usually `https://api.doorflow.com/api/3`
+- `sendmail_path`: path to local `sendmail`
+- `from_address`: sender address used in the email header and envelope sender
+- `default_email`: extra copy recipient that gets every report
+- `state_path`: optional path to the JSON file that stores the last successful send times; if omitted, it defaults to `badge_report_state.json` next to `config.json`
+- `shops`: array of shop objects
+
+Per-shop keys:
+- `name`: friendly shop name used on the command line and in the email subject
+- `captain_email`: shop captain recipient
+- `doorflow_channel_name`: DoorFlow channel name to look up, if you do not want to hardcode an ID
+- `doorflow_channel_id`: DoorFlow channel ID, if you want to skip the lookup
+- `report_every_days`: how often to send this shop’s report; defaults to 30
+- `summary`: optional block controlling the summary section
+
+Summary keys:
+- `enabled`: turn the summary block on or off
+- `show_total`: include total event count
+- `show_status_counts`: include accepted/rejected counts
+- `show_unique_people`: include unique badge holder count
+- `show_average_per_day`: include average badges per day
+- `show_busiest_day`: include busiest day
+- `show_top_accepted_people`: include top accepted badge holders
+- `show_top_rejected_people`: include top rejected attempts
+- `top_n`: how many names to show in each top list
+
+Example `config.json`:
+
+```json
+{
+  "api_base": "https://api.doorflow.com/api/3",
+  "sendmail_path": "/usr/sbin/sendmail",
+  "from_address": "sender@example.invalid",
+  "default_email": "sender@example.invalid",
+  "state_path": "badge_report_state.json",
+  "shops": [
+    {
+      "name": "Woodshop",
+      "captain_email": "captain@example.invalid",
+      "doorflow_channel_name": "Wood Shop Door",
+      "report_every_days": 30,
+      "summary": {
+        "enabled": true,
+        "top_n": 5
+      }
+    },
+    {
+      "name": "Metal Shop",
+      "captain_email": "metalshop@example.invalid",
+      "doorflow_channel_id": 4722,
+      "report_every_days": 14,
+      "summary": {
+        "enabled": true,
+        "show_top_rejected_people": false
+      }
+    }
+  ]
+}
+```
+
 Current test setup:
 - Woodshop is the default shop in `config.json`
 - reports go to the shop captain plus whatever address is set in `default_email`
