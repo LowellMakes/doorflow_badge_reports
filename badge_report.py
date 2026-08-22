@@ -596,7 +596,7 @@ def build_summary_lines(
 def _report_footer_lines(now: dt.datetime | None = None, hostname: str | None = None, script_name: str | None = None) -> list[str]:
     stamp = (now or _utc_now()).astimezone(dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S %Z")
     host = hostname or socket.gethostname()
-    script = script_name or sys.argv[0]
+    script = str(Path(script_name or sys.argv[0]).resolve())
     return [
         "",
         f"Generated: {stamp}",
