@@ -40,8 +40,8 @@ Top-level keys:
 Per-shop keys:
 - `name`: friendly shop name used on the command line and in the email subject
 - `captain_email`: shop captain recipient
-- `doorflow_channel_name`: DoorFlow channel name to look up, if you do not want to hardcode an ID
-- `doorflow_channel_id`: DoorFlow channel ID, if you want to skip the lookup
+- `doorflow_channel_name`: DoorFlow channel name to look up
+- `doorflow_channel_id`: DoorFlow controller/channel id to use instead of the name
 - `report_every_days`: how often to send this shop’s report; defaults to 30
 - `summary`: optional block controlling the summary section
 
