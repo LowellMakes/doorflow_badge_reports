@@ -271,42 +271,51 @@ def list_channels(api_base: str, token: str, page_size: int = 1000) -> list[dict
     return channels
 
 
+def _channel_name(channel: dict) -> str:
+    return str(channel.get("name") or channel.get("channel_name") or channel.get("doorflow_channel_name") or "")
+
+
+def _channel_id_candidates(channel: dict) -> list[int]:
+    candidates: list[int] = []
+    for key in ("id", "channel_id", "channelId", "doorflow_channel_id"):
+        value = channel.get(key)
+        if value in (None, ""):
+            continue
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            continue
+        if parsed not in candidates:
+            candidates.append(parsed)
+    return candidates
+
+
 def resolve_channel_id(config: AppConfig, shop: ShopConfig, token: str) -> str:
     channels = list_channels(config.api_base, token)
 
     if shop.doorflow_channel_name:
         wanted = shop.doorflow_channel_name.casefold()
-        matches = [
-            channel
-            for channel in channels
-            if str(channel.get("name") or channel.get("channel_name") or "").casefold() == wanted
-        ]
+        matches = [channel for channel in channels if _channel_name(channel).casefold() == wanted]
         if not matches:
-            available = ", ".join(
-                str(channel.get("name") or channel.get("channel_name") or channel.get("id"))
-                for channel in channels
-            )
+            available = ", ".join(_channel_name(channel) or str(channel.get("id")) for channel in channels)
             raise ValueError(
                 f"No DoorFlow channel matched {shop.doorflow_channel_name!r}. Available channels: {available}"
             )
-        return str(matches[0].get("name") or matches[0].get("channel_name") or shop.doorflow_channel_name)
+        return _channel_name(matches[0]) or shop.doorflow_channel_name
 
     if shop.doorflow_channel_id is not None:
         wanted_id = int(shop.doorflow_channel_id)
         matches = [
             channel
             for channel in channels
-            if int(channel.get("id") or -1) == wanted_id
+            if wanted_id in _channel_id_candidates(channel)
         ]
         if not matches:
-            available = ", ".join(
-                str(channel.get("name") or channel.get("channel_name") or channel.get("id"))
-                for channel in channels
-            )
+            available = ", ".join(_channel_name(channel) or str(channel.get("id")) for channel in channels)
             raise ValueError(
                 f"No DoorFlow channel matched id {wanted_id!r}. Available channels: {available}"
             )
-        return str(matches[0].get("name") or matches[0].get("channel_name") or wanted_id)
+        return _channel_name(matches[0]) or str(wanted_id)
 
     raise ValueError(
         f"Shop {shop.name!r} must define either doorflow_channel_id or doorflow_channel_name in config.json"

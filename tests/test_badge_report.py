@@ -99,8 +99,8 @@ class BadgeReportTests(unittest.TestCase):
             report,
             "list_channels",
             return_value=[
-                {"id": 4622, "name": "Wood Shop Door"},
-                {"id": 4695, "name": "ChopShop"},
+                {"channel_id": 4622, "name": "Wood Shop Door"},
+                {"channel_id": 4695, "name": "ChopShop"},
             ],
         ):
             self.assertEqual(report.resolve_channel_id(config, shop, "token"), "Wood Shop Door")
