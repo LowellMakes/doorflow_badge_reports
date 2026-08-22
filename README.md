@@ -2,23 +2,39 @@
 
 Self-contained reporting for DoorFlow door access events.
 
-Requirements:
+Requirements
 - Python 3.10+ (run with `python3`)
 - A DoorFlow OAuth access token in the environment
+- Local `sendmail` access for delivery
 
-The repo is intentionally config-driven:
-- `config.json` holds the API base URL, sendmail path, sender address, shop/door definitions, per-shop summary toggles, the per-shop report interval, and the default copy recipient
-- `badge_report.py` contains the report logic only
-- `DOORFLOW_ACCESS_TOKEN` is the preferred environment variable for live API access
+What it does
+- looks up the configured DoorFlow door for each shop
+- fetches access events for the relevant window
+- keeps events oldest-first
+- shows Eastern time, person name, fob/credential number, and accepted/rejected status
+- adds a compact summary at the top of the email
+- emails a human-readable report plus CSV attachment via local sendmail
 
-Configuration reference:
+Configuration overview
+The script is intentionally config-driven. `config.json` controls:
+- the DoorFlow API base URL
+- the local `sendmail` path
+- the sender address
+- the default copy recipient
+- the persisted state file location
+- per-shop door, captain, and interval settings
+- per-shop summary toggles
 
+The preferred environment variable for DoorFlow auth is:
+- `DOORFLOW_ACCESS_TOKEN`
+
+Configuration reference
 Top-level keys:
 - `api_base`: DoorFlow API base URL, usually `https://api.doorflow.com/api/3`
 - `sendmail_path`: path to local `sendmail`
 - `from_address`: sender address used in the email header and envelope sender
 - `default_email`: extra copy recipient that gets every report
-- `state_path`: optional path to the JSON file that stores the last successful send times; if omitted, it defaults to `badge_report_state.json` next to `config.json`
+- `state_path`: optional path to the JSON file that stores last successful send times; if omitted, it defaults to `badge_report_state.json` next to `config.json`
 - `shops`: array of shop objects
 
 Per-shop keys:
@@ -40,8 +56,7 @@ Summary keys:
 - `show_top_rejected_people`: include top rejected attempts
 - `top_n`: how many names to show in each top list
 
-Example `config.json`:
-
+Example config
 ```json
 {
   "api_base": "https://api.doorflow.com/api/3",
@@ -74,65 +89,61 @@ Example `config.json`:
 }
 ```
 
-Current test setup:
-- Woodshop is the default shop in `config.json`
-- reports go to the shop captain plus whatever address is set in `default_email`
+How scheduling works
+- The script records the last successful send time for each shop in the state file.
+- By default, that file is `badge_report_state.json` next to `config.json`.
+- Each shop’s `report_every_days` controls how often it is due.
+- If a shop has never been sent, it uses its configured interval as the initial lookback window.
+- On a normal run, the script checks every configured shop and sends only the ones that are due.
+- If you pass `--shop`, it checks only that one shop.
+- If you pass `--days`, it overrides the interval for that run.
+- If you pass `--force`, the script sends even if the shop is not due yet.
+- A successful send updates that shop’s last-sent timestamp.
 
-What it does:
-- looks up the configured door controller for the selected shop
-- fetches DoorFlow access events for the last 30 days
-- keeps the badge events oldest-first
-- shows the badge time in Eastern time, the person’s name, the fob/credential number used, and whether the access was accepted or rejected
-- emails a human-readable report plus CSV attachment via local sendmail
+CLI usage
+Set your DoorFlow token:
 
-Quick start:
+```bash
+export DOORFLOW_ACCESS_TOKEN='your-real-doorflow-access-token'
+```
 
-1. Set your DoorFlow token:
+Dry-run the current config:
 
-   export DOORFLOW_ACCESS_TOKEN='your-real-doorflow-access-token'
+```bash
+python3 badge_report.py --dry-run
+```
 
+Send due reports for every configured shop:
+
+```bash
+python3 badge_report.py
+```
+
+Force one shop immediately:
+
+```bash
+python3 badge_report.py --shop MetalShop --force
+```
+
+Force every configured shop immediately:
+
+```bash
+python3 badge_report.py --force
+```
+
+Useful notes
+- The email goes to both the shop captain and `default_email`.
+- If those addresses are the same, duplicates are removed.
+- `--dry-run` still fetches DoorFlow data so the rendered report is real; it just prints the email instead of sending it.
+- The CSV attachment uses the same event rows as the human-readable table.
+
+Quick start
+1. Set `DOORFLOW_ACCESS_TOKEN`.
 2. Review `config.json`.
+3. Run `python3 badge_report.py --dry-run`.
+4. Send with `python3 badge_report.py`.
 
-3. Dry-run the default shop:
-
-   python3 badge_report.py --dry-run
-
-4. Send the report:
-
-   python3 badge_report.py
-
-Changing shops later:
-
-Add more entries to `config.json` under `shops`:
-
-- `name`
-- `captain_email`
-- `doorflow_channel_name` or `doorflow_channel_id`
-- optional `summary` block to enable/disable sections per shop
-
-Then run, for example:
-
-    python3 badge_report.py --shop MetalShop
-
-If you omit `--shop`, the script checks every configured shop and sends only the ones that are due.
-If you omit `--days`, each shop uses its configured interval from `report_every_days` (default 30).
-If you do pass `--days`, it overrides the interval for that run.
-
-Manual trigger examples:
-
-- Force one shop immediately:
-
-      python3 badge_report.py --shop MetalShop --force
-
-- Force every configured shop immediately:
-
-      python3 badge_report.py --force
-
-State:
-
-- The script records last successful send times in `badge_report_state.json` by default.
-- `state_path` in `config.json` can override that location.
-
-Testing:
-
-    python3 -m unittest discover -s tests -v
+Testing
+```bash
+python3 -m unittest discover -s tests -v
+```
