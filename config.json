@@ -1,7 +1,7 @@
 {
   "api_base": "https://api.doorflow.com/api/3",
-  "from_address": "sender@example.invalid",
-  "default_email": "sender@example.invalid",
+  "from_address": "from-CHANGEME@example.invalid",
+  "default_email": "default-CHANGEME@example.invalid",
   "sendmail_path": "/usr/sbin/sendmail",
   "state_path": "badge_report_state.json",
   "shops": [
@@ -9,7 +9,7 @@
       "name": "Woodshop",
       "report_every_days": 30,
       "doorflow_channel_name": "Wood Shop Door",
-      "captain_email": "captain@example.invalid",
+      "captain_email": "woodshop@example.invalid",
       "summary": {
         "enabled": true,
         "top_n": 5
