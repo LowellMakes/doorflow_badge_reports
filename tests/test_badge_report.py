@@ -79,7 +79,31 @@ class BadgeReportTests(unittest.TestCase):
                 {"id": 4695, "name": "ChopShop"},
             ],
         ):
-            self.assertEqual(report.resolve_channel_id(config, shop, "token"), 4622)
+            self.assertEqual(report.resolve_channel_id(config, shop, "token"), "Wood Shop Door")
+
+    def test_resolve_channel_id_uses_channel_name_for_id_config(self) -> None:
+        shop = report.ShopConfig(
+            name="Woodshop",
+            captain_email="sender@example.invalid",
+            doorflow_channel_id=4622,
+        )
+        config = report.AppConfig(
+            api_base="https://api.doorflow.com/api/3",
+            sendmail_path="/usr/sbin/sendmail",
+            from_address="sender@example.invalid",
+            default_email="sender@example.invalid",
+            state_path=Path("state.json"),
+            shops=(shop,),
+        )
+        with patch.object(
+            report,
+            "list_channels",
+            return_value=[
+                {"id": 4622, "name": "Wood Shop Door"},
+                {"id": 4695, "name": "ChopShop"},
+            ],
+        ):
+            self.assertEqual(report.resolve_channel_id(config, shop, "token"), "Wood Shop Door")
 
     def test_collect_badge_events_orders_oldest_first(self) -> None:
         events = [
@@ -166,7 +190,7 @@ class BadgeReportTests(unittest.TestCase):
                         {"id": 4622, "name": "Wood Shop Door"},
                         {"id": 4722, "name": "Metal Shop Door"},
                     ]
-                if "channels=4722" in url:
+                if "channels=Metal+Shop+Door" in url:
                     return [
                         {
                             "person_name": "Ada Lovelace",
@@ -175,7 +199,7 @@ class BadgeReportTests(unittest.TestCase):
                             "event_code": 10,
                         }
                     ]
-                if "channels=4622" in url:
+                if "channels=Wood+Shop+Door" in url:
                     return []
                 raise AssertionError(url)
 
@@ -221,7 +245,7 @@ class BadgeReportTests(unittest.TestCase):
             def fake_request_json(url, token):
                 if "/channels?" in url:
                     return [{"id": 4622, "name": "Wood Shop Door"}]
-                if "channels=4622" in url:
+                if "channels=Wood+Shop+Door" in url:
                     return []
                 raise AssertionError(url)
 
