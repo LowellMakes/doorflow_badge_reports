@@ -7,6 +7,7 @@ import datetime as dt
 import io
 import json
 import os
+import socket
 import subprocess
 import sys
 from collections import Counter
@@ -592,6 +593,19 @@ def build_summary_lines(
     return lines
 
 
+def _report_footer_lines(now: dt.datetime | None = None, hostname: str | None = None, script_name: str | None = None) -> list[str]:
+    stamp = (now or _utc_now()).astimezone(dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S %Z")
+    host = hostname or socket.gethostname()
+    script = script_name or sys.argv[0]
+    return [
+        "",
+        f"Generated: {stamp}",
+        f"Hostname: {host}",
+        f"Script: {script}",
+        "Source: https://github.com/LowellMakes/doorflow_badge_reports",
+    ]
+
+
 def render_body(
     *,
     shop: ShopConfig,
@@ -614,6 +628,7 @@ def render_body(
         lines.append(
             f"{_format_eastern(event.created_at)} | {event.status} | {event.display_name} | {event.credentials_number or '-'}"
         )
+    lines.extend(_report_footer_lines())
     return "\n".join(lines) + "\n"
 
 

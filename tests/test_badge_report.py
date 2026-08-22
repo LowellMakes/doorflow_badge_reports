@@ -350,6 +350,25 @@ class BadgeReportTests(unittest.TestCase):
         )
         self.assertEqual(lines, [])
 
+    def test_report_footer_lines_includes_script_metadata(self) -> None:
+        with patch.object(report, "_utc_now", return_value=datetime(2026, 8, 21, 20, 17, 31, tzinfo=timezone.utc)), patch.object(
+            report.socket,
+            "gethostname",
+            return_value="cameo",
+        ), patch.object(report.sys, "argv", ["/opt/doorflow_badge_reports/badge_report.py"]):
+            footer = report._report_footer_lines()
+
+        self.assertEqual(
+            footer,
+            [
+                "",
+                "Generated: 2026-08-21 20:17:31 UTC",
+                "Hostname: cameo",
+                "Script: /opt/doorflow_badge_reports/badge_report.py",
+                "Source: https://github.com/LowellMakes/doorflow_badge_reports",
+            ],
+        )
+
     def test_build_email_contains_body_and_csv_attachment(self) -> None:
         shop = report.ShopConfig(
             name="Woodshop",
@@ -389,6 +408,10 @@ class BadgeReportTests(unittest.TestCase):
         self.assertNotIn("Recipient:", body)
         self.assertIn("Accepted/Rejected", body)
         self.assertIn("2026-07-01 04:45:00 EDT | Rejected | Grace Hopper | 9876", body)
+        self.assertIn("Generated:", body)
+        self.assertIn("Hostname:", body)
+        self.assertIn("Script:", body)
+        self.assertIn("https://github.com/LowellMakes/doorflow_badge_reports", body)
         attachment_text = message.get_payload()[1].get_content()
         self.assertIn("date_time_eastern,accepted_rejected,person_name,fob_number", attachment_text)
         self.assertIn("Grace Hopper", attachment_text)
