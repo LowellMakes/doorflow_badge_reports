@@ -79,7 +79,7 @@ class BadgeReportTests(unittest.TestCase):
                 {"id": 4695, "name": "ChopShop"},
             ],
         ):
-            self.assertEqual(report.resolve_channel_id(config, shop, "token"), "Wood Shop Door")
+            self.assertEqual(report.resolve_channel_id(config, shop, "token"), 4622)
 
     def test_resolve_channel_id_uses_channel_name_for_id_config(self) -> None:
         shop = report.ShopConfig(
@@ -103,7 +103,7 @@ class BadgeReportTests(unittest.TestCase):
                 {"channel_id": 4695, "name": "ChopShop"},
             ],
         ):
-            self.assertEqual(report.resolve_channel_id(config, shop, "token"), "Wood Shop Door")
+            self.assertEqual(report.resolve_channel_id(config, shop, "token"), 4622)
 
     def test_collect_badge_events_orders_oldest_first(self) -> None:
         events = [
@@ -190,7 +190,7 @@ class BadgeReportTests(unittest.TestCase):
                         {"id": 4622, "name": "Wood Shop Door"},
                         {"id": 4722, "name": "Metal Shop Door"},
                     ]
-                if "channels=Metal+Shop+Door" in url:
+                if "channels=4722" in url:
                     return [
                         {
                             "person_name": "Ada Lovelace",
@@ -199,7 +199,7 @@ class BadgeReportTests(unittest.TestCase):
                             "event_code": 10,
                         }
                     ]
-                if "channels=Wood+Shop+Door" in url:
+                if "channels=4622" in url:
                     return []
                 raise AssertionError(url)
 
@@ -245,7 +245,7 @@ class BadgeReportTests(unittest.TestCase):
             def fake_request_json(url, token):
                 if "/channels?" in url:
                     return [{"id": 4622, "name": "Wood Shop Door"}]
-                if "channels=Wood+Shop+Door" in url:
+                if "channels=4622" in url:
                     return []
                 raise AssertionError(url)
 

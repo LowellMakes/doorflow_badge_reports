@@ -290,7 +290,7 @@ def _channel_id_candidates(channel: dict) -> list[int]:
     return candidates
 
 
-def resolve_channel_id(config: AppConfig, shop: ShopConfig, token: str) -> str:
+def resolve_channel_id(config: AppConfig, shop: ShopConfig, token: str) -> int:
     channels = list_channels(config.api_base, token)
 
     if shop.doorflow_channel_name:
@@ -301,21 +301,22 @@ def resolve_channel_id(config: AppConfig, shop: ShopConfig, token: str) -> str:
             raise ValueError(
                 f"No DoorFlow channel matched {shop.doorflow_channel_name!r}. Available channels: {available}"
             )
-        return _channel_name(matches[0]) or shop.doorflow_channel_name
+        resolved = _channel_id_candidates(matches[0])
+        if not resolved:
+            raise ValueError(
+                f"DoorFlow channel {shop.doorflow_channel_name!r} was found but has no numeric id field"
+            )
+        return resolved[0]
 
     if shop.doorflow_channel_id is not None:
         wanted_id = int(shop.doorflow_channel_id)
-        matches = [
-            channel
-            for channel in channels
-            if wanted_id in _channel_id_candidates(channel)
-        ]
+        matches = [channel for channel in channels if wanted_id in _channel_id_candidates(channel)]
         if not matches:
             available = ", ".join(_channel_name(channel) or str(channel.get("id")) for channel in channels)
             raise ValueError(
                 f"No DoorFlow channel matched id {wanted_id!r}. Available channels: {available}"
             )
-        return _channel_name(matches[0]) or str(wanted_id)
+        return wanted_id
 
     raise ValueError(
         f"Shop {shop.name!r} must define either doorflow_channel_id or doorflow_channel_name in config.json"
@@ -325,7 +326,7 @@ def resolve_channel_id(config: AppConfig, shop: ShopConfig, token: str) -> str:
 def fetch_events(
     api_base: str,
     token: str,
-    channel_id: str,
+    channel_id: int,
     since: dt.datetime,
     event_codes: Sequence[int] = DEFAULT_ACCESS_EVENT_CODES,
     page_size: int = 1000,
