@@ -160,6 +160,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now doorflow-badge-report.timer
 ```
 
+The service runs as root, so it can be installed directly under `/etc/systemd/system/` and launched by the timer without a dedicated service account.
 The service reads `DOORFLOW_ACCESS_TOKEN` from `/etc/default/doorflow-badge-report` if that file exists.
 Create it with the token before enabling the timer:
 

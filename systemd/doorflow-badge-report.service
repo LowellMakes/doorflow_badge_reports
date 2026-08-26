@@ -5,8 +5,6 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-User=leftyfb
-Group=leftyfb
 WorkingDirectory=/opt/doorflow_badge_report
 EnvironmentFile=-/etc/default/doorflow-badge-report
 ExecStart=/usr/bin/python3 /opt/doorflow_badge_report/badge_report.py
