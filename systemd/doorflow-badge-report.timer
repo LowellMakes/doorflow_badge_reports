@@ -1,0 +1,10 @@
+[Unit]
+Description=Run DoorFlow badge report weekly at midnight
+
+[Timer]
+OnCalendar=Mon *-*-* 00:00:00
+Persistent=true
+Unit=doorflow-badge-report.service
+
+[Install]
+WantedBy=timers.target

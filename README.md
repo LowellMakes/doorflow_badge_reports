@@ -137,11 +137,42 @@ Useful notes
 - `--dry-run` still fetches DoorFlow data so the rendered report is real; it just prints the email instead of sending it.
 - The CSV attachment uses the same event rows as the human-readable table.
 
-Quick start
+### Quick start
 1. Set `DOORFLOW_ACCESS_TOKEN`.
 2. Review `config.json`.
 3. Run `python3 badge_report.py --dry-run`.
 4. Send with `python3 badge_report.py`.
+
+Systemd scheduling
+The repo includes these unit files under `systemd/`:
+- `systemd/doorflow-badge-report.service`
+- `systemd/doorflow-badge-report.timer`
+
+They are written for a runtime checkout at `/opt/doorflow_badge_report` and a weekly midnight timer.
+The script itself still decides which shops are due based on each shop’s `report_every_days` value.
+
+A typical install looks like this:
+
+```bash
+sudo install -D -m 0644 systemd/doorflow-badge-report.service /etc/systemd/system/doorflow-badge-report.service
+sudo install -D -m 0644 systemd/doorflow-badge-report.timer /etc/systemd/system/doorflow-badge-report.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now doorflow-badge-report.timer
+```
+
+The service reads `DOORFLOW_ACCESS_TOKEN` from `/etc/default/doorflow-badge-report` if that file exists.
+Create it with the token before enabling the timer:
+
+```bash
+sudo install -D -m 0600 /dev/null /etc/default/doorflow-badge-report
+sudoedit /etc/default/doorflow-badge-report
+```
+
+Add:
+
+```bash
+DOORFLOW_ACCESS_TOKEN=your-real-doorflow-access-token
+```
 
 Testing
 ```bash
